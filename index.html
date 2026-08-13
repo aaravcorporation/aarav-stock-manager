@@ -130,8 +130,30 @@
   <section id="productTab" class="panel">
     <div class="card">
       <h2>📋 Product Master</h2>
-      <div class="notice">Add each product once. Products are saved automatically and shown A–Z.</div>
-      <div id="productList" style="margin-top:10px"></div>
+      <div class="notice">Create each product once. Products are saved A–Z. During purchase, select the product and enter only Mfg. MM/YY and quantity.</div>
+      <label>Product Name *</label>
+      <input id="newProductName" type="text" placeholder="e.g. Dr. Fixit Wonderproof 100">
+      <div class="grid2">
+        <div>
+          <label>Unit *</label>
+          <select id="newProductUnit">
+            <option value="Bags">Bags</option>
+            <option value="Bottle">Bottle</option>
+            <option value="Bucket">Bucket</option>
+            <option value="Can">Can</option>
+            <option value="Other">Other</option>
+            <option value="Piece">Piece</option>
+            <option value="Set">Set</option>
+            <option value="Sq.M.">Sq.M.</option>
+          </select>
+        </div>
+        <div>
+          <label>Shelf Life (Months) *</label>
+          <input id="newProductShelf" type="number" inputmode="numeric" min="1" step="1" placeholder="e.g. 12">
+        </div>
+      </div>
+      <button class="primary" onclick="saveNewProduct()">＋ Save Product</button>
+      <div id="productList" style="margin-top:14px"></div>
     </div>
   </section>
 
@@ -142,7 +164,8 @@
       <select id="material" onchange="productSelected()">
         <option value="">Select product</option>
       </select>
-      <button type="button" class="secondary" style="width:100%;margin-top:6px" onclick="openNewProductModal()">＋ New Product</button>
+      <div class="notice" style="margin-top:6px">Select a product from Product Master. Unit and shelf life fill automatically.</div>
+      
       <div>
         <label>Manufacturing Month / Year *</label><input id="mfg" type="text" inputmode="numeric" maxlength="5" placeholder="MM/YY" oninput="formatMfg(this);calculateExpiry()">
       </div>
@@ -154,7 +177,7 @@
       <div class="grid2">
         <div><label>Quantity *</label><input id="qty" type="number" inputmode="decimal" min="1" step="any" placeholder="0"></div>
         <div><label>Unit</label>
-          <select id="unit">
+          <select id="unit" disabled>
             <option value="Bags">Bags</option>
             <option value="Bottle">Bottle</option>
             <option value="Bucket">Bucket</option>
@@ -252,6 +275,23 @@ function expiryText(d){let n=daysTo(d);return n<0?'EXPIRED':n<=30?`Expires in ${
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
 
 function render(){
+  stock.sort((a,b)=>{
+    const nameA=String(a.material||'').trim();
+    const nameB=String(b.material||'').trim();
+    const byName=nameA.localeCompare(nameB,undefined,{sensitivity:'base'});
+    if(byName!==0)return byName;
+    const ea=String(a.expiry||'');
+    const eb=String(b.expiry||'');
+    const pa=ea.match(/^(\d{2})\/(\d{2})$/);
+    const pb=eb.match(/^(\d{2})\/(\d{2})$/);
+    if(pa&&pb){
+      const da=(2000+Number(pa[2]))*12+Number(pa[1]);
+      const db=(2000+Number(pb[2]))*12+Number(pb[1]);
+      return da-db;
+    }
+    return ea.localeCompare(eb);
+  });
+
   renderStock(); renderHistory();
   document.getElementById('totalItems').textContent=stock.reduce((a,b)=>a+Number(b.qty||0),0);
   document.getElementById('batchCount').textContent=stock.filter(x=>Number(x.qty)>0).length;
@@ -360,44 +400,22 @@ function productSelected(){
   document.getElementById('shelfLife').value=p.shelfLife||'';
   calculateExpiry();
 }
-function openNewProductModal(){
-  const modal=document.getElementById('newProductModal');
-  if(modal) modal.style.display='flex';
-  const n=document.getElementById('newProductName'); if(n){n.value='';setTimeout(()=>n.focus(),50);}
-  const u=document.getElementById('newProductUnit'); if(u)u.value='Other';
-  const s=document.getElementById('newProductShelf'); if(s)s.value='12';
-}
-function closeNewProductModal(){
-  const modal=document.getElementById('newProductModal');
-  if(modal) modal.style.display='none';
-}
 function saveNewProduct(){
   const name=(document.getElementById('newProductName').value||'').trim();
   const unit=document.getElementById('newProductUnit').value;
   const shelfLife=Number(document.getElementById('newProductShelf').value);
   if(!name)return alert('Please enter a product name.');
   if(!Number.isInteger(shelfLife)||shelfLife<=0)return alert('Please enter a valid whole-number shelf life.');
-  const existing=products.find(p=>p.name.toLowerCase()===name.toLowerCase());
-  if(existing){
-    closeNewProductModal();
-    renderProductOptions();
-    document.getElementById('material').value=existing.name;
-    productSelected();
-    alert('This product already exists. It has been selected.');
-    return;
-  }
+  if(products.some(p=>p.name.toLowerCase()===name.toLowerCase()))
+    return alert('This product already exists in Product Master.');
   products.push({name,unit,shelfLife});
   products.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
   localStorage.setItem(PKEY,JSON.stringify(products));
   renderProductOptions();
-  const material=document.getElementById('material');
-  if(material){
-    material.value=name;
-    productSelected();
-  }
   renderProductMaster();
-  closeNewProductModal();
-  alert('Product saved successfully and added to the Product dropdown.');
+  document.getElementById('newProductName').value='';
+  document.getElementById('newProductShelf').value='';
+  alert('Product saved successfully.');
 }
 function renderProductMaster(){
   const el=document.getElementById('productList'); if(!el)return;
@@ -547,29 +565,5 @@ updateBackupStatus();
 loadDriveBackupSettings();
 </script>
 
-<div id="newProductModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;padding:18px">
-  <div style="background:#fff;border-radius:18px;max-width:520px;width:100%;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.25)">
-    <h2 style="margin:0 0 16px">＋ New Product</h2>
-    <label>Product Name *</label>
-    <input id="newProductName" type="text" placeholder="e.g. Dr. Fixit Wonderproof 100" style="width:100%;box-sizing:border-box">
-    <label style="display:block;margin-top:12px">Unit *</label>
-    <select id="newProductUnit" style="width:100%;box-sizing:border-box">
-      <option value="Bags">Bags</option>
-      <option value="Bottle">Bottle</option>
-      <option value="Bucket">Bucket</option>
-      <option value="Can">Can</option>
-      <option value="Other">Other</option>
-      <option value="Piece">Piece</option>
-      <option value="Set">Set</option>
-      <option value="Sq.M.">Sq.M.</option>
-    </select>
-    <label style="display:block;margin-top:12px">Shelf Life (Months) *</label>
-    <input id="newProductShelf" type="number" inputmode="numeric" min="1" step="1" value="12" style="width:100%;box-sizing:border-box">
-    <div style="display:flex;gap:10px;margin-top:18px">
-      <button type="button" class="secondary" style="flex:1" onclick="closeNewProductModal()">Cancel</button>
-      <button type="button" class="primary" style="flex:1" onclick="saveNewProduct()">Save Product</button>
-    </div>
-  </div>
-</div>
 </body>
 </html>

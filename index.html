@@ -679,6 +679,7 @@ function renderHistory(){
   }).join('');
 }
 function showTab(id){
+  localStorage.setItem('aarav_current_tab',id);
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===id));
   if(id==='history')renderHistory();
@@ -816,6 +817,7 @@ renderProductOptions();
 renderProductMaster();
 updateBackupStatus();
 loadDriveBackupSettings();
+showTab(localStorage.getItem('aarav_current_tab') || 'stock');
 </script>
 
 

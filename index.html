@@ -276,27 +276,29 @@ function expiryText(d){let n=daysTo(d);return n<0?'EXPIRED':n<=30?`Expires in ${
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
 
 function render(){
-  stock.sort((a,b)=>{
-    const nameA=String(a.material||'').trim();
-    const nameB=String(b.material||'').trim();
-    const byName=nameA.localeCompare(nameB,undefined,{sensitivity:'base'});
+
+  const sortedStock = [...stock].sort((a,b)=>{
+    const nameA=String(a.material ?? a.product ?? a.name ?? '').trim();
+    const nameB=String(b.material ?? b.product ?? b.name ?? '').trim();
+    const byName=nameA.localeCompare(nameB,undefined,{sensitivity:'base',numeric:true});
     if(byName!==0)return byName;
-    const ea=String(a.expiry||'');
-    const eb=String(b.expiry||'');
-    const pa=ea.match(/^(\d{2})\/(\d{2})$/);
-    const pb=eb.match(/^(\d{2})\/(\d{2})$/);
+
+    const expiryA=String(a.expiry ?? '').trim();
+    const expiryB=String(b.expiry ?? '').trim();
+    const pa=expiryA.match(/^(\d{2})\/(\d{2})$/);
+    const pb=expiryB.match(/^(\d{2})\/(\d{2})$/);
     if(pa&&pb){
       const da=(2000+Number(pa[2]))*12+Number(pa[1]);
       const db=(2000+Number(pb[2]))*12+Number(pb[1]);
       return da-db;
     }
-    return ea.localeCompare(eb);
+    return expiryA.localeCompare(expiryB,undefined,{numeric:true});
   });
 
-  renderStock(); renderHistory();
+renderStock(); renderHistory();
   document.getElementById('totalItems').textContent=stock.reduce((a,b)=>a+Number(b.qty||0),0);
-  document.getElementById('batchCount').textContent=stock.filter(x=>Number(x.qty)>0).length;
-  document.getElementById('expiringCount').textContent=stock.filter(x=>Number(x.qty)>0 && daysTo(x.expiry)>=0 && daysTo(x.expiry)<=30).length;
+  document.getElementById('batchCount').textContent=sortedStock.filter(x=>Number(x.qty)>0).length;
+  document.getElementById('expiringCount').textContent=sortedStock.filter(x=>Number(x.qty)>0 && daysTo(x.expiry)>=0 && daysTo(x.expiry)<=30).length;
 }
 function renderStock(){
   const q=(document.getElementById('search').value||'').toLowerCase();

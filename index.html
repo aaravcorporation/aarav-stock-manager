@@ -308,7 +308,23 @@ function renderStock(){
     const n=daysTo(x.expiry);
     return f==='all'||(f==='soon'&&n>=0&&n<=30)||(f==='expired'&&n<0);
   });
-  rows.sort((a,b)=>a.expiry.localeCompare(b.expiry));
+  rows.sort((a,b)=>{
+    const nameA=String(a.material||'').trim();
+    const nameB=String(b.material||'').trim();
+    const byName=nameA.localeCompare(nameB,undefined,{sensitivity:'base',numeric:true});
+    if(byName!==0)return byName;
+
+    const ea=String(a.expiry||'');
+    const eb=String(b.expiry||'');
+    const pa=ea.match(/^(\d{2})\/(\d{2})$/);
+    const pb=eb.match(/^(\d{2})\/(\d{2})$/);
+    if(pa&&pb){
+      const da=(2000+Number(pa[2]))*12+Number(pa[1]);
+      const db=(2000+Number(pb[2]))*12+Number(pb[1]);
+      return da-db;
+    }
+    return ea.localeCompare(eb,undefined,{numeric:true});
+  });
   const el=document.getElementById('stockList');
   if(!rows.length){el.innerHTML='<div class="empty">No stock found.</div>';return}
   el.innerHTML=rows.map(x=>`

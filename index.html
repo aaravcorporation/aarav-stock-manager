@@ -341,7 +341,6 @@ function renderStock(){
         <div><div class="qty">${num(x.qty)}</div><div style="text-align:center;font-size:11px;color:#6b7280">in stock</div></div>
         <button class="pm plus" onclick="changeQty('${x.id}',1)">+</button>
       </div>
-      <button class="danger" style="width:100%;margin-top:7px" onclick="deleteStock('${x.id}')">🗑️ Delete Item</button>
     </div>`).join('');
 }
 function changeQty(id,delta){

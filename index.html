@@ -424,9 +424,11 @@ function renderProductMaster(){
   products.forEach((p,i)=>{
     const row=document.createElement('div');
     row.className='batch';
-    row.style.marginBottom='7px';
+    row.style.marginBottom='8px';
+
     const top=document.createElement('div');
     top.className='batch-top';
+
     const info=document.createElement('div');
     const name=document.createElement('div');
     name.className='material';
@@ -435,19 +437,100 @@ function renderProductMaster(){
     meta.className='batch-meta';
     meta.textContent='Unit: '+p.unit+' • Shelf life: '+p.shelfLife+' months';
     info.appendChild(name); info.appendChild(meta);
-    const btn=document.createElement('button');
-    btn.className='danger'; btn.textContent='🗑️';
-    btn.onclick=()=>deleteProduct(i);
-    top.appendChild(info); top.appendChild(btn); row.appendChild(top);
+
+    const actions=document.createElement('div');
+    actions.style.display='flex';
+    actions.style.gap='6px';
+
+    const edit=document.createElement('button');
+    edit.className='secondary';
+    edit.textContent='✏️';
+    edit.title='Edit product';
+    edit.onclick=()=>editProduct(i);
+
+    const del=document.createElement('button');
+    del.className='danger';
+    del.textContent='🗑️';
+    del.title='Delete product';
+    del.onclick=()=>deleteProduct(i);
+
+    actions.appendChild(edit); actions.appendChild(del);
+    top.appendChild(info); top.appendChild(actions);
+    row.appendChild(top);
     el.appendChild(row);
   });
 }
-function deleteProduct(i){
-  const p=products[i];if(!p)return;
-  if(stock.some(x=>String(x.material).toLowerCase()===p.name.toLowerCase()))return alert('This product has stock records. Delete those stock entries first.');
-  if(!confirm('Delete product "'+p.name+'"?'))return;
-  products.splice(i,1);localStorage.setItem(PKEY,JSON.stringify(products));renderProductOptions();renderProductMaster();
+
+function editProduct(i){
+  const p=products[i]; if(!p)return;
+  const name=prompt('Product name:',p.name);
+  if(name===null)return;
+  const clean=name.trim();
+  if(!clean)return alert('Product name cannot be blank.');
+
+  const unit=prompt('Unit (Bags, Bottle, Bucket, Can, Other, Piece, Set, Sq.M.):',p.unit);
+  if(unit===null)return;
+  const allowed=['Bags','Bottle','Bucket','Can','Other','Piece','Set','Sq.M.'];
+  const chosen=allowed.find(x=>x.toLowerCase()===unit.trim().toLowerCase())||'Other';
+
+  const shelf=prompt('Shelf life in months:',String(p.shelfLife));
+  if(shelf===null)return;
+  const shelfLife=Number(shelf);
+  if(!Number.isInteger(shelfLife)||shelfLife<=0)return alert('Please enter a valid whole-number shelf life.');
+
+  const duplicate=products.some((x,j)=>j!==i&&x.name.toLowerCase()===clean.toLowerCase());
+  if(duplicate)return alert('Another product with this name already exists.');
+
+  const oldName=p.name;
+  products[i]={name:clean,unit:chosen,shelfLife};
+  products.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
+  localStorage.setItem(PKEY,JSON.stringify(products));
+
+  // Keep existing stock records linked if only the product master name changed.
+  if(oldName.toLowerCase()!==clean.toLowerCase()){
+    stock.forEach(x=>{
+      if(String(x.material||'').toLowerCase()===oldName.toLowerCase()){
+        x.material=clean;
+        x.unit=chosen;
+        x.shelfLife=shelfLife;
+        x.expiry=calcExpiry(x.mfg,shelfLife);
+      }
+    });
+  } else {
+    stock.forEach(x=>{
+      if(String(x.material||'').toLowerCase()===clean.toLowerCase()){
+        x.unit=chosen;
+        x.shelfLife=shelfLife;
+        if(x.mfg)x.expiry=calcExpiry(x.mfg,shelfLife);
+      }
+    });
+  }
+  save();
+  renderProductOptions();
+  renderProductMaster();
+  render();
 }
+
+function deleteProduct(i){
+  const p=products[i]; if(!p)return;
+
+  const currentQty=stock
+    .filter(x=>String(x.material||'').toLowerCase()===p.name.toLowerCase())
+    .reduce((sum,x)=>sum+Number(x.qty||0),0);
+
+  if(currentQty>0){
+    return alert('This product cannot be deleted because current stock is '+currentQty+' '+p.unit+'. Sell or remove the current stock first.');
+  }
+
+  if(!confirm('Delete "'+p.name+'" from Product Master?'))return;
+
+  products.splice(i,1);
+  localStorage.setItem(PKEY,JSON.stringify(products));
+  renderProductOptions();
+  renderProductMaster();
+  save();
+}
+
 function addPurchase(){
   const material=document.getElementById('material').value.trim();
   const mfg=document.getElementById('mfg').value;

@@ -376,25 +376,40 @@ function closeAddStock(){
 function addReplacementStock(){
   const id=document.getElementById('adjustStockId').value;
   const original=stock.find(a=>a.id===id); if(!original)return;
+
   const mfg=document.getElementById('adjustMfg').value.trim();
   const qty=Number(document.getElementById('adjustQty').value);
   const reason=document.getElementById('adjustReason').value.trim()||'Stock adjustment';
+
   if(!/^\d{2}\/\d{2}$/.test(mfg))return alert('Enter Mfg. in MM/YY format.');
   const [mm]=mfg.split('/').map(Number);
   if(mm<1||mm>12)return alert('Enter a valid Mfg. month.');
   if(!Number.isFinite(qty)||qty<=0)return alert('Enter a valid quantity.');
 
+  // A supplier replacement means the old batch is being exchanged.
+  // Deduct the returned/replaced quantity from the batch on which + was tapped,
+  // then create/add the replacement quantity to the new MFG/expiry batch.
+  if(reason==='Supplier Replacement' && qty>Number(original.qty||0)){
+    return alert('Replacement quantity cannot be greater than the current stock in this batch.');
+  }
+
   const expiry=expiryFromMfg(mfg,Number(original.shelfLife));
   if(!expiry)return alert('Could not calculate expiry.');
+
   const material=original.material;
   const shelfLife=Number(original.shelfLife)||0;
   const unit=original.unit||'Other';
+
+  if(reason==='Supplier Replacement'){
+    original.qty=Number(original.qty||0)-qty;
+  }
 
   let target=stock.find(a=>
     String(a.material).toLowerCase()===String(material).toLowerCase() &&
     a.mfg===mfg && Number(a.shelfLife)===shelfLife && a.expiry===expiry
   );
-  if(target)target.qty+=qty;
+
+  if(target)target.qty=Number(target.qty||0)+qty;
   else{
     target={id:uid(),material,mfg,shelfLife,expiry,qty,unit};
     stock.push(target);
@@ -403,10 +418,18 @@ function addReplacementStock(){
   history.unshift({
     date:new Date().toISOString(),
     type:'ADJUSTMENT_IN',
-    material,mfg,expiry,qty,unit,
+    material,
+    fromMfg: reason==='Supplier Replacement' ? original.mfg : '',
+    mfg,
+    expiry,
+    qty,
+    unit,
     reason
   });
-  save();render();closeAddStock();
+
+  save();
+  render();
+  closeAddStock();
 }
 
 function formatMfg(input){
@@ -703,7 +726,7 @@ loadDriveBackupSettings();
 <div id="addStockModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;padding:18px">
   <div style="background:#fff;border-radius:18px;max-width:520px;width:100%;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.25)">
     <h2 style="margin:0 0 6px">＋ Add / Replacement Stock</h2>
-    <div class="notice">For returned, replaced or other non-purchase stock. A genuine purchase should be entered through the Purchase page.</div>
+    <div class="notice">For returned, replaced or other non-purchase stock. For Supplier Replacement, the quantity is deducted from this batch and added to the new Mfg. batch. Genuine purchases go through the Purchase page.</div>
     <div style="font-weight:700;margin:12px 0 4px" id="adjustProduct"></div>
     <div class="batch-meta">Unit: <span id="adjustUnit"></span></div>
     <label style="display:block;margin-top:12px">Mfg. Month / Year *</label>

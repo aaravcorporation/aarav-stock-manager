@@ -344,7 +344,13 @@ function renderProductOptions(){
   const sel=document.getElementById('material'); if(!sel)return;
   const current=sel.value;
   products.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
-  sel.innerHTML='<option value="">Select product</option>'+products.map(p=>`<option value="${escAttr(p.name)}">${esc(p.name)}</option>`).join('');
+  sel.innerHTML='<option value="">Select product</option>';
+  products.forEach(p=>{
+    const opt=document.createElement('option');
+    opt.value=p.name;
+    opt.textContent=p.name;
+    sel.appendChild(opt);
+  });
   if(current)sel.value=current;
 }
 function productSelected(){
@@ -384,15 +390,39 @@ function saveNewProduct(){
   products.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
   localStorage.setItem(PKEY,JSON.stringify(products));
   renderProductOptions();
-  document.getElementById('material').value=name;
-  productSelected();
+  const material=document.getElementById('material');
+  if(material){
+    material.value=name;
+    productSelected();
+  }
   renderProductMaster();
   closeNewProductModal();
+  alert('Product saved successfully and added to the Product dropdown.');
 }
 function renderProductMaster(){
   const el=document.getElementById('productList'); if(!el)return;
   if(!products.length){el.innerHTML='<div class="empty">No products added yet.</div>';return;}
-  el.innerHTML=products.map((p,i)=>`<div class="batch"><div class="batch-top"><div><div class="material">${esc(p.name)}</div><div class="batch-meta">Unit: ${esc(p.unit)} • Shelf life: ${num(p.shelfLife)} months</div></div><button class="danger" onclick="deleteProduct(${i})">🗑️</button></div></div>`).join('');
+  el.innerHTML='';
+  products.forEach((p,i)=>{
+    const row=document.createElement('div');
+    row.className='batch';
+    row.style.marginBottom='7px';
+    const top=document.createElement('div');
+    top.className='batch-top';
+    const info=document.createElement('div');
+    const name=document.createElement('div');
+    name.className='material';
+    name.textContent=p.name;
+    const meta=document.createElement('div');
+    meta.className='batch-meta';
+    meta.textContent='Unit: '+p.unit+' • Shelf life: '+p.shelfLife+' months';
+    info.appendChild(name); info.appendChild(meta);
+    const btn=document.createElement('button');
+    btn.className='danger'; btn.textContent='🗑️';
+    btn.onclick=()=>deleteProduct(i);
+    top.appendChild(info); top.appendChild(btn); row.appendChild(top);
+    el.appendChild(row);
+  });
 }
 function deleteProduct(i){
   const p=products[i];if(!p)return;

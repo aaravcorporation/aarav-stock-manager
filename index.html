@@ -218,12 +218,12 @@
       </div>
       <div id="backupStatus" class="backup-status"></div>
       <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
-        <h2>☁️ Google Drive Auto Backup</h2>
+        <h2>☁️ Google Drive Auto Backup</h2><div id="driveConnectionStatus" class="notice" style="margin:8px 0">Checking saved Google Drive settings…</div>
         <label>Google Apps Script Web App URL</label>
         <input id="driveBackupUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec">
         <label>Backup Key</label>
         <input id="driveBackupToken" type="password" placeholder="Optional backup key">
-        <button class="primary" onclick="saveDriveBackupSettings()">Save Google Drive Settings</button>
+        <button class="primary" onclick="saveDriveBackupSettings()">Save Google Drive Settings</button><button class="secondary" style="width:100%;margin-top:8px" onclick="loadDriveBackupSettings()">↻ Reload Saved Settings</button>
         <button class="secondary" style="width:100%;margin-top:7px" onclick="backupToDrive(true)">☁️ Backup to Google Drive Now</button>
         <div id="driveStatus" class="backup-status"></div>
         <div class="notice">After setup, stock changes can automatically update one backup file in your Google Drive. Google authorization is handled by the Apps Script you deploy.</div>
@@ -661,6 +661,10 @@ function renderHistory(){
 function showTab(id){
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===id));
+  if(id==='backup'){
+    loadDriveBackupSettings();
+    updateBackupStatus();
+  }
 }
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 
@@ -673,13 +677,23 @@ function updateBackupStatus(){
 function loadDriveBackupSettings(){
   const u=document.getElementById('driveBackupUrl');
   const t=document.getElementById('driveBackupToken');
-  if(u)u.value=localStorage.getItem('drive_backup_url')||'';
-  if(t)t.value=localStorage.getItem('drive_backup_token')||'';
+  const savedUrl=localStorage.getItem('drive_backup_url')||'';
+  const savedToken=localStorage.getItem('drive_backup_token')||'';
+  if(u)u.value=savedUrl;
+  if(t)t.value=savedToken;
   const last=localStorage.getItem('drive_backup_last');
   const el=document.getElementById('driveStatus');
-  if(el&&last)el.textContent='✓ Last Google Drive backup: '+new Date(last).toLocaleString('en-IN');
-}
-function saveDriveBackupSettings(){
+  const cs=document.getElementById('driveConnectionStatus');
+  if(el){
+    if(last) el.textContent='✓ Google Drive backup active • Last backup: '+new Date(last).toLocaleString('en-IN');
+    else if(savedUrl) el.textContent='✓ Google Drive settings saved';
+    else el.textContent='Google Drive not configured on this device';
+  }
+  if(cs){
+    if(savedUrl) cs.innerHTML='<b style="color:#15803d">✓ Google Drive is configured on this device.</b><br>The saved Web App URL and Backup Key have been loaded automatically.';
+    else cs.innerHTML='<b style="color:#b91c1c">Google Drive settings not found on this device.</b><br>Enter the Web App URL and Backup Key once, then tap Save Google Drive Settings.';
+  }
+} function saveDriveBackupSettings(){
   const url=document.getElementById('driveBackupUrl').value.trim();
   const token=document.getElementById('driveBackupToken').value.trim();
   if(!url)return alert('Please enter the Google Apps Script Web App URL.');

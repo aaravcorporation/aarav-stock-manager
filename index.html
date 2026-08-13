@@ -341,16 +341,12 @@ function renderStock(){
         <div><div class="qty">${num(x.qty)}</div><div style="text-align:center;font-size:11px;color:#6b7280">in stock</div></div>
         <button class="pm plus" onclick="changeQty('${x.id}',1)">+</button>
       </div>
-      <div class="actions">
-        <button class="danger" onclick="sellBatch('${x.id}')">− Sale</button>
-        <button class="success" onclick="purchaseBatch('${x.id}')">＋ Purchase</button>
-      </div>
       <button class="danger" style="width:100%;margin-top:7px" onclick="deleteStock('${x.id}')">🗑️ Delete Item</button>
     </div>`).join('');
 }
 function changeQty(id,delta){
-  const x=stock.find(a=>a.id===id); if(!x)return;
-  if(delta<0) sellBatch(id); else purchaseBatch(id);
+  if(delta<0) sellBatch(id);
+  else openAddStock(id);
 }
 function sellBatch(id){
   const x=stock.find(a=>a.id===id); if(!x)return;
@@ -363,39 +359,76 @@ function sellBatch(id){
   history.unshift({date:new Date().toISOString(),type:'SALE',material:x.material,batch:x.batch,expiry:x.expiry,qty:n,unit:x.unit});
   save();render();
 }
-function purchaseBatch(id){
+function openAddStock(id){
   const x=stock.find(a=>a.id===id); if(!x)return;
-  const amount=prompt(`Purchase quantity for ${x.material}`,'1');
-  if(amount===null)return;
-  const n=Number(amount);
-  if(!Number.isFinite(n)||n<=0)return alert('Enter a valid quantity.');
-  x.qty+=n;
-  history.unshift({date:new Date().toISOString(),type:'PURCHASE',material:x.material,batch:x.batch,expiry:x.expiry,qty:n,unit:x.unit});
-  save();render();
+  const modal=document.getElementById('addStockModal');
+  document.getElementById('adjustStockId').value=id;
+  document.getElementById('adjustProduct').textContent=x.material;
+  document.getElementById('adjustUnit').textContent=x.unit||'Other';
+  document.getElementById('adjustMfg').value=x.mfg||'';
+  document.getElementById('adjustQty').value='1';
+  document.getElementById('adjustReason').value='Replacement / Return';
+  modal.style.display='flex';
 }
+function closeAddStock(){
+  const modal=document.getElementById('addStockModal');
+  if(modal)modal.style.display='none';
+}
+function addReplacementStock(){
+  const id=document.getElementById('adjustStockId').value;
+  const original=stock.find(a=>a.id===id); if(!original)return;
+  const mfg=document.getElementById('adjustMfg').value.trim();
+  const qty=Number(document.getElementById('adjustQty').value);
+  const reason=document.getElementById('adjustReason').value.trim()||'Stock adjustment';
+  if(!/^\d{2}\/\d{2}$/.test(mfg))return alert('Enter Mfg. in MM/YY format.');
+  const [mm]=mfg.split('/').map(Number);
+  if(mm<1||mm>12)return alert('Enter a valid Mfg. month.');
+  if(!Number.isFinite(qty)||qty<=0)return alert('Enter a valid quantity.');
+
+  const expiry=expiryFromMfg(mfg,Number(original.shelfLife));
+  if(!expiry)return alert('Could not calculate expiry.');
+  const material=original.material;
+  const shelfLife=Number(original.shelfLife)||0;
+  const unit=original.unit||'Other';
+
+  let target=stock.find(a=>
+    String(a.material).toLowerCase()===String(material).toLowerCase() &&
+    a.mfg===mfg && Number(a.shelfLife)===shelfLife && a.expiry===expiry
+  );
+  if(target)target.qty+=qty;
+  else{
+    target={id:uid(),material,mfg,shelfLife,expiry,qty,unit};
+    stock.push(target);
+  }
+
+  history.unshift({
+    date:new Date().toISOString(),
+    type:'ADJUSTMENT_IN',
+    material,mfg,expiry,qty,unit,
+    reason
+  });
+  save();render();closeAddStock();
+}
+
 function formatMfg(input){
   let v=input.value.replace(/\D/g,'').slice(0,4);
   if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);
   input.value=v;
 }
+function expiryFromMfg(mfg,shelf){
+  if(!/^\d{2}\/\d{2}$/.test(mfg)||!Number.isInteger(shelf)||shelf<=0)return '';
+  const [m,yy]=mfg.split('/').map(Number);
+  if(m<1||m>12)return '';
+  const d=new Date(2000+yy,m-1,1);
+  d.setMonth(d.getMonth()+shelf);
+  return String(d.getMonth()+1).padStart(2,'0')+'/'+String(d.getFullYear()).slice(-2);
+}
+
 function calculateExpiry(returnValue=false){
   const mfg=document.getElementById('mfg').value.trim();
   const shelf=Number(document.getElementById('shelfLife').value);
-  let result='';
-  if(/^\d{2}\/\d{2}$/.test(mfg) && Number.isInteger(shelf) && shelf>0){
-    const [m,yy]=mfg.split('/').map(Number);
-    if(m>=1 && m<=12){
-      const year=2000+yy;
-      const d=new Date(year,m-1,1);
-      d.setMonth(d.getMonth()+shelf);
-      const mm=String(d.getMonth()+1).padStart(2,'0');
-      const outYY=String(d.getFullYear()).slice(-2);
-      result=`${mm}/${outYY}`;
-      document.getElementById('expiryDisplay').value=result;
-    }
-  }else{
-    document.getElementById('expiryDisplay').value='';
-  }
+  const result=expiryFromMfg(mfg,shelf);
+  document.getElementById('expiryDisplay').value=result;
   return returnValue ? result : undefined;
 }
 
@@ -667,5 +700,31 @@ updateBackupStatus();
 loadDriveBackupSettings();
 </script>
 
+
+<div id="addStockModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;padding:18px">
+  <div style="background:#fff;border-radius:18px;max-width:520px;width:100%;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.25)">
+    <h2 style="margin:0 0 6px">＋ Add / Replacement Stock</h2>
+    <div class="notice">For returned, replaced or other non-purchase stock. A genuine purchase should be entered through the Purchase page.</div>
+    <div style="font-weight:700;margin:12px 0 4px" id="adjustProduct"></div>
+    <div class="batch-meta">Unit: <span id="adjustUnit"></span></div>
+    <label style="display:block;margin-top:12px">Mfg. Month / Year *</label>
+    <input id="adjustMfg" type="text" inputmode="numeric" maxlength="5" placeholder="MM/YY" oninput="formatMfg(this)">
+    <label style="display:block;margin-top:12px">Quantity *</label>
+    <input id="adjustQty" type="number" inputmode="decimal" min="1" step="any" value="1">
+    <label style="display:block;margin-top:12px">Reason</label>
+    <select id="adjustReason">
+      <option>Replacement / Return</option>
+      <option>Customer Return</option>
+      <option>Supplier Replacement</option>
+      <option>Stock Adjustment</option>
+      <option>Other</option>
+    </select>
+    <input type="hidden" id="adjustStockId">
+    <div style="display:flex;gap:10px;margin-top:18px">
+      <button type="button" class="secondary" style="flex:1" onclick="closeAddStock()">Cancel</button>
+      <button type="button" class="primary" style="flex:1" onclick="addReplacementStock()">＋ Add Stock</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

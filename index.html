@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#17324d">
-<title>Aarav Stock Manager</title>
+<title>Expiry-wise Stock Manager</title>
 <style>
   :root{--navy:#17324d;--blue:#2563eb;--green:#15803d;--red:#dc2626;--amber:#b45309;--bg:#f4f6f8;--card:#fff;--text:#17202a;--muted:#6b7280;--border:#dfe4ea}
   *{box-sizing:border-box}
@@ -96,38 +96,6 @@
   }
 
 </style>
-
-<link rel="manifest" href="./manifest.json">
-<link rel="icon" href="./icon-192.png">
-<meta name="theme-color" content="#17324d">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Aarav Stock Manager">
-<style>
-#installAppBtn{display:none;width:100%;margin:0 0 10px;background:#17324d;color:#fff}
-</style>
-<script>
-let deferredInstallPrompt=null;
-window.addEventListener('beforeinstallprompt', e=>{
-  e.preventDefault();
-  deferredInstallPrompt=e;
-  const b=document.getElementById('installAppBtn');
-  if(b)b.style.display='block';
-});
-async function installApp(){
-  if(!deferredInstallPrompt)return;
-  deferredInstallPrompt.prompt();
-  await deferredInstallPrompt.userChoice;
-  deferredInstallPrompt=null;
-  const b=document.getElementById('installAppBtn');
-  if(b)b.style.display='none';
-}
-if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
-}
-</script>
-
 </head>
 <body>
 <header>
@@ -135,7 +103,7 @@ if('serviceWorker' in navigator){
   <small>Purchase + / Sale − • Stock maintained batch/expiry-wise</small>
 </header>
 
-<div class="wrap"><button id="installAppBtn" onclick="installApp()">📲 Install Aarav Stock Manager</button>
+<div class="wrap">
   <div class="summary">
     <div class="stat"><b id="totalItems">0</b><span>Total Units</span></div>
     <div class="stat"><b id="batchCount">0</b><span>Active Batches</span></div>
@@ -213,6 +181,17 @@ if('serviceWorker' in navigator){
         For protection against device/browser loss, use <b>Export Backup</b> periodically.
       </div>
       <div id="backupStatus" class="backup-status"></div>
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+        <h2>☁️ Google Drive Auto Backup</h2>
+        <label>Google Apps Script Web App URL</label>
+        <input id="driveBackupUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+        <label>Backup Key</label>
+        <input id="driveBackupToken" type="password" placeholder="Optional backup key">
+        <button class="primary" onclick="saveDriveBackupSettings()">Save Google Drive Settings</button>
+        <button class="secondary" style="width:100%;margin-top:7px" onclick="backupToDrive(true)">☁️ Backup to Google Drive Now</button>
+        <div id="driveStatus" class="backup-status"></div>
+        <div class="notice">After setup, stock changes can automatically update one backup file in your Google Drive. Google authorization is handled by the Apps Script you deploy.</div>
+      </div>
     </div>
   </section>
 </div>
@@ -234,6 +213,7 @@ function save(){
     history:history
   }));
   updateBackupStatus();
+  backupToDrive(false);
 }
 function today(){return new Date().toISOString().slice(0,10)}
 function expiryDate(d){
@@ -386,6 +366,42 @@ function updateBackupStatus(){
   const t=localStorage.getItem('expiry_stock_last_backup');
   el.textContent=t ? '✓ Auto-backup updated: '+new Date(t).toLocaleString('en-IN') : '✓ Auto-backup ready';
 }
+function loadDriveBackupSettings(){
+  const u=document.getElementById('driveBackupUrl');
+  const t=document.getElementById('driveBackupToken');
+  if(u)u.value=localStorage.getItem('drive_backup_url')||'';
+  if(t)t.value=localStorage.getItem('drive_backup_token')||'';
+  const last=localStorage.getItem('drive_backup_last');
+  const el=document.getElementById('driveStatus');
+  if(el&&last)el.textContent='✓ Last Google Drive backup: '+new Date(last).toLocaleString('en-IN');
+}
+function saveDriveBackupSettings(){
+  const url=document.getElementById('driveBackupUrl').value.trim();
+  const token=document.getElementById('driveBackupToken').value.trim();
+  if(!url)return alert('Please enter the Google Apps Script Web App URL.');
+  localStorage.setItem('drive_backup_url',url);
+  localStorage.setItem('drive_backup_token',token);
+  const el=document.getElementById('driveStatus');
+  if(el)el.textContent='✓ Settings saved. Sending a test backup…';
+  backupToDrive(true);
+}
+function backupToDrive(manual){
+  const url=localStorage.getItem('drive_backup_url');
+  if(!url)return;
+  const token=localStorage.getItem('drive_backup_token')||'';
+  const payload={token:token,data:{version:1,exportedAt:new Date().toISOString(),stock:stock,history:history}};
+  try{
+    fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)})
+      .then(()=>{
+        localStorage.setItem('drive_backup_last',new Date().toISOString());
+        const el=document.getElementById('driveStatus');
+        if(el)el.textContent='✓ Backup sent to Google Drive: '+new Date().toLocaleString('en-IN');
+      }).catch(()=>{
+        const el=document.getElementById('driveStatus');
+        if(el&&manual)el.textContent='⚠️ Could not send backup. Check the Web App URL.';
+      });
+  }catch(e){}
+}
 function exportData(){
   const data={version:1,exportedAt:new Date().toISOString(),stock,history};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -408,6 +424,7 @@ function formatDate(d){
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 render();
 updateBackupStatus();
+loadDriveBackupSettings();
 </script>
 </body>
 </html>

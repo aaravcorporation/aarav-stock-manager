@@ -426,6 +426,7 @@ function addReplacementStock(){
   }
 
   history.unshift({
+    txnId:makeTxnId(),
     date:new Date().toISOString(),
     type:'ADJUSTMENT_IN',
     material,
@@ -633,7 +634,7 @@ function addPurchase(){
   let x=stock.find(a=>a.material.toLowerCase()===material.toLowerCase() && a.mfg===mfg && a.shelfLife===shelfLife && a.expiry===expiry);
   if(x){x.qty+=qty}
   else{x={id:uid(),material,mfg,shelfLife,expiry,qty,unit};stock.push(x)}
-  history.unshift({date:new Date().toISOString(),type:'PURCHASE',material,mfg,shelfLife,expiry,qty,unit,note});
+  history.unshift({txnId:makeTxnId(),date:new Date().toISOString(),type:'PURCHASE',material,mfg,shelfLife,expiry,qty,unit,note});
   save();
   document.getElementById('qty').value='';document.getElementById('note').value='';
   alert('Purchase added successfully.');
@@ -649,18 +650,38 @@ function deleteStock(id){
   render();
 }
 function renderHistory(){
-  const el=document.getElementById('historyList');
-  if(!history.length){el.innerHTML='<div class="empty">No transactions yet.</div>';return}
-  el.innerHTML=history.slice(0,150).map(h=>`
-    <div class="history-item">
-      <b>${h.type==='PURCHASE'?'➕ Purchase':'➖ Sale'}</b> — ${esc(h.material)}
-      <br>${num(h.qty)} ${esc(h.unit||'')} • Mfg ${esc(h.mfg||'—')} • Exp ${formatDate(h.expiry)}
-      <br><span style="color:#6b7280">${new Date(h.date).toLocaleString()}${h.note?' • '+esc(h.note):''}</span>
-    </div>`).join('');
+  const el=document.getElementById('historyList'); if(!el)return;
+  let bar=document.getElementById('historyFilters');
+  if(!bar){
+    const card=document.querySelector('#history .card'), heading=card?.querySelector('h2');
+    if(card&&heading){
+      bar=document.createElement('div'); bar.id='historyFilters'; bar.style.margin='12px 0';
+      bar.innerHTML='<input id="historySearch" class="search" placeholder="🔎 Search product, Mfg, reference or note..." oninput="renderHistory()"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><select id="historyType" onchange="renderHistory()"><option value="all">All transaction types</option><option value="PURCHASE">Purchase</option><option value="SALE">Sale / Reduction</option><option value="ADJUSTMENT_IN">Stock Added / Replacement</option></select><select id="historyProduct" onchange="renderHistory()"><option value="all">All products</option></select></div>';
+      heading.insertAdjacentElement('afterend',bar);
+    }
+  }
+  const q=(document.getElementById('historySearch')?.value||'').toLowerCase().trim();
+  const type=document.getElementById('historyType')?.value||'all', product=document.getElementById('historyProduct')?.value||'all';
+  const names=[...new Set(history.map(h=>String(h.material||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base',numeric:true}));
+  const ps=document.getElementById('historyProduct'), cur=ps?.value||'all';
+  if(ps){ps.innerHTML='<option value="all">All products</option>'+names.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');ps.value=names.includes(cur)?cur:'all';}
+  const rows=history.filter(h=>{
+    if(type!=='all'&&h.type!==type)return false;
+    if(product!=='all'&&String(h.material||'')!==product)return false;
+    const hay=[h.material,h.mfg,h.expiry,h.note,h.reference,h.reason,h.type,h.txnId,h.fromMfg].join(' ').toLowerCase();
+    return !q||hay.includes(q);
+  }).sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+  if(!rows.length){el.innerHTML='<div class="empty">No matching transactions.</div>';return;}
+  el.innerHTML=rows.map(h=>{
+    const label=h.type==='PURCHASE'?'Purchase':h.type==='SALE'?'Sale / Reduction':h.type==='ADJUSTMENT_IN'?'Stock Added / Replacement':h.type||'Transaction';
+    const sign=h.type==='SALE'?'−':'+', note=h.note||h.reference||h.reason||'';
+    return '<div class="history-item"><div style="display:flex;justify-content:space-between;gap:8px"><b>'+esc(h.material||'')+'</b><b>'+sign+num(h.qty)+' '+esc(h.unit||'')+'</b></div><div>'+esc(label)+' • Mfg '+esc(h.mfg||'—')+' • Exp '+formatDate(h.expiry)+'</div><div style="color:#6b7280">'+new Date(h.date).toLocaleString('en-IN')+' • '+esc(h.txnId||'—')+'</div>'+(note?'<div style="color:#6b7280">📝 '+esc(note)+'</div>':'')+'</div>';
+  }).join('');
 }
 function showTab(id){
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===id));
+  if(id==='history')renderHistory();
   if(id==='backup'){
     loadDriveBackupSettings();
     updateBackupStatus();
@@ -674,51 +695,100 @@ function updateBackupStatus(){
   const t=localStorage.getItem('expiry_stock_last_backup');
   el.textContent=t ? '✓ Auto-backup updated: '+new Date(t).toLocaleString('en-IN') : '✓ Auto-backup ready';
 }
-function loadDriveBackupSettings(){
+
+function driveSettingsOpen(){
+  return new Promise((resolve)=>{
+    try{
+      const r=indexedDB.open('aarav_stock_settings',1);
+      r.onupgradeneeded=()=>{try{r.result.createObjectStore('settings')}catch(e){}};
+      r.onsuccess=()=>resolve(r.result);
+      r.onerror=()=>resolve(null);
+    }catch(e){resolve(null);}
+  });
+}
+async function saveDriveSettingsPersistently(url,token){
+  localStorage.setItem('drive_backup_url',url);
+  localStorage.setItem('drive_backup_token',token);
+  try{
+    const db=await driveSettingsOpen();
+    if(db){
+      await new Promise(resolve=>{
+        const tx=db.transaction('settings','readwrite');
+        tx.objectStore('settings').put({url,token},'google_drive');
+        tx.oncomplete=resolve; tx.onerror=resolve;
+      });
+      db.close();
+    }
+  }catch(e){}
+}
+async function readDriveSettingsPersistently(){
+  let url=localStorage.getItem('drive_backup_url')||'';
+  let token=localStorage.getItem('drive_backup_token')||'';
+  if(!url){
+    try{
+      const db=await driveSettingsOpen();
+      if(db){
+        const v=await new Promise(resolve=>{
+          const tx=db.transaction('settings','readonly');
+          const q=tx.objectStore('settings').get('google_drive');
+          q.onsuccess=()=>resolve(q.result||null); q.onerror=()=>resolve(null);
+        });
+        db.close();
+        if(v&&v.url){
+          url=v.url; token=v.token||'';
+          localStorage.setItem('drive_backup_url',url);
+          localStorage.setItem('drive_backup_token',token);
+        }
+      }
+    }catch(e){}
+  }
+  return {url,token};
+}
+async function loadDriveBackupSettings(){
   const u=document.getElementById('driveBackupUrl');
   const t=document.getElementById('driveBackupToken');
-  const savedUrl=localStorage.getItem('drive_backup_url')||'';
-  const savedToken=localStorage.getItem('drive_backup_token')||'';
-  if(u)u.value=savedUrl;
-  if(t)t.value=savedToken;
+  const cfg=await readDriveSettingsPersistently();
+  if(u)u.value=cfg.url;
+  if(t)t.value=cfg.token;
   const last=localStorage.getItem('drive_backup_last');
   const el=document.getElementById('driveStatus');
   const cs=document.getElementById('driveConnectionStatus');
   if(el){
-    if(last) el.textContent='✓ Google Drive backup active • Last backup: '+new Date(last).toLocaleString('en-IN');
-    else if(savedUrl) el.textContent='✓ Google Drive settings saved';
+    if(last)el.textContent='✓ Google Drive backup active • Last backup: '+new Date(last).toLocaleString('en-IN');
+    else if(cfg.url)el.textContent='✓ Google Drive settings saved';
     else el.textContent='Google Drive not configured on this device';
   }
   if(cs){
-    if(savedUrl) cs.innerHTML='<b style="color:#15803d">✓ Google Drive is configured on this device.</b><br>The saved Web App URL and Backup Key have been loaded automatically.';
+    if(cfg.url)cs.innerHTML='<b style="color:#15803d">✓ Google Drive is configured on this device.</b><br>Saved settings are loaded automatically.';
     else cs.innerHTML='<b style="color:#b91c1c">Google Drive settings not found on this device.</b><br>Enter the Web App URL and Backup Key once, then tap Save Google Drive Settings.';
   }
-} function saveDriveBackupSettings(){
+}
+async function saveDriveBackupSettings(){
   const url=document.getElementById('driveBackupUrl').value.trim();
   const token=document.getElementById('driveBackupToken').value.trim();
   if(!url)return alert('Please enter the Google Apps Script Web App URL.');
-  localStorage.setItem('drive_backup_url',url);
-  localStorage.setItem('drive_backup_token',token);
+  await saveDriveSettingsPersistently(url,token);
   const el=document.getElementById('driveStatus');
   if(el)el.textContent='✓ Settings saved. Sending a test backup…';
-  backupToDrive(true);
+  await backupToDrive(true);
 }
-function backupToDrive(manual){
-  const url=localStorage.getItem('drive_backup_url');
-  if(!url)return;
-  const token=localStorage.getItem('drive_backup_token')||'';
-  const payload={token:token,data:{version:1,exportedAt:new Date().toISOString(),stock:stock,history:history}};
+async function backupToDrive(manual){
+  const cfg=await readDriveSettingsPersistently();
+  if(!cfg.url){
+    const el=document.getElementById('driveStatus');
+    if(el)el.textContent='Google Drive settings not configured.';
+    return;
+  }
+  const payload={token:cfg.token||'',data:{version:1,exportedAt:new Date().toISOString(),stock:stock,history:history}};
   try{
-    fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)})
-      .then(()=>{
-        localStorage.setItem('drive_backup_last',new Date().toISOString());
-        const el=document.getElementById('driveStatus');
-        if(el)el.textContent='✓ Backup sent to Google Drive: '+new Date().toLocaleString('en-IN');
-      }).catch(()=>{
-        const el=document.getElementById('driveStatus');
-        if(el&&manual)el.textContent='⚠️ Could not send backup. Check the Web App URL.';
-      });
-  }catch(e){}
+    await fetch(cfg.url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
+    localStorage.setItem('drive_backup_last',new Date().toISOString());
+    const el=document.getElementById('driveStatus');
+    if(el)el.textContent='✓ Backup sent to Google Drive: '+new Date().toLocaleString('en-IN');
+  }catch(e){
+    const el=document.getElementById('driveStatus');
+    if(el&&manual)el.textContent='⚠️ Could not send backup. Check the Web App URL.';
+  }
 }
 function exportData(){
   const data={version:1,exportedAt:new Date().toISOString(),stock,history};
@@ -733,6 +803,7 @@ function importData(e){
 function clearAll(){
   if(confirm('Delete ALL stock and transaction history? This cannot be undone unless you have a backup.')){stock=[];history=[];save();render();}
 }
+function makeTxnId(){const d=new Date();return 'TXN-'+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'-'+String(d.getTime()).slice(-6);}
 function num(n){return Number(n).toLocaleString('en-IN',{maximumFractionDigits:3})}
 function formatDate(d){
   if(!d)return'—';

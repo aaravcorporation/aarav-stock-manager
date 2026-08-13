@@ -95,12 +95,7 @@
     .actions button{font-size:12px}
   }
 
-.install-app-btn{display:none;background:#17324d;color:#fff;width:100%;margin:0 0 12px;border-radius:10px;padding:12px;font-weight:800;font-size:15px}.install-app-btn.show{display:block}</style>
-<link rel="manifest" href="./manifest.json">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Aarav Stock Manager">
-<link rel="icon" href="./icon-192.png">
+</style>
 </head>
 <body>
 <header>
@@ -108,7 +103,7 @@
   <small>Purchase + / Sale − • Stock maintained batch/expiry-wise</small>
 </header>
 
-<div class="wrap"><button id="installAppBtn" class="install-app-btn" type="button">📲 Install Aarav Stock Manager</button>
+<div class="wrap">
   <div class="summary">
     <div class="stat"><b id="totalItems">0</b><span>Total Units</span></div>
     <div class="stat"><b id="batchCount">0</b><span>Active Batches</span></div>
@@ -132,10 +127,22 @@
     <div id="stockList"></div>
   </section>
 
+  <section id="productTab" class="panel">
+    <div class="card">
+      <h2>📋 Product Master</h2>
+      <div class="notice">Add each product once. Products are saved automatically and shown A–Z.</div>
+      <div id="productList" style="margin-top:10px"></div>
+    </div>
+  </section>
+
   <section id="add" class="panel">
     <div class="card">
       <h2>➕ Add Purchase / New Batch</h2>
-      <label>Material Name *</label><input id="material" placeholder="e.g. Dr. Fixit Pidifin 2K">
+      <label>Product *</label>
+      <select id="material" onchange="productSelected()">
+        <option value="">Select product</option>
+      </select>
+      <button type="button" class="secondary" style="width:100%;margin-top:6px" onclick="addNewProduct()">＋ New Product</button>
       <div>
         <label>Manufacturing Month / Year *</label><input id="mfg" type="text" inputmode="numeric" maxlength="5" placeholder="MM/YY" oninput="formatMfg(this);calculateExpiry()">
       </div>
@@ -203,13 +210,24 @@
 
 <script>
 const KEY='expiry_stock_v1';
+const PKEY='expiry_product_master_v1';
 const HKEY='expiry_stock_history_v1';
 let stock=JSON.parse(localStorage.getItem(KEY)||'[]');
 let history=JSON.parse(localStorage.getItem(HKEY)||'[]');
+let products=JSON.parse(localStorage.getItem(PKEY)||'[]');
+function normalizeProducts(){
+  const map=new Map();
+  products.forEach(p=>{if(p&&p.name){const name=String(p.name).trim();if(name)map.set(name.toLowerCase(),{name,unit:p.unit||'Other',shelfLife:Number(p.shelfLife)||0});}});
+  stock.forEach(x=>{if(x&&x.material){const name=String(x.material).trim();if(name&&!map.has(name.toLowerCase()))map.set(name.toLowerCase(),{name,unit:x.unit||'Other',shelfLife:Number(x.shelfLife)||0});}});
+  products=[...map.values()].sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
+  localStorage.setItem(PKEY,JSON.stringify(products));
+}
+normalizeProducts();
 
 function save(){
   localStorage.setItem(KEY,JSON.stringify(stock));
   localStorage.setItem(HKEY,JSON.stringify(history));
+  localStorage.setItem(PKEY,JSON.stringify(products));
   localStorage.setItem('expiry_stock_last_backup', new Date().toISOString());
   localStorage.setItem('expiry_stock_auto_backup', JSON.stringify({
     version:1,
@@ -321,6 +339,47 @@ function calculateExpiry(returnValue=false){
   }
   return returnValue ? result : undefined;
 }
+
+function renderProductOptions(){
+  const sel=document.getElementById('material'); if(!sel)return;
+  const current=sel.value;
+  products.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
+  sel.innerHTML='<option value="">Select product</option>'+products.map(p=>`<option value="${escAttr(p.name)}">${esc(p.name)}</option>`).join('');
+  if(current)sel.value=current;
+}
+function productSelected(){
+  const name=document.getElementById('material').value;
+  const p=products.find(x=>x.name===name); if(!p)return;
+  document.getElementById('unit').value=p.unit||'Other';
+  document.getElementById('shelfLife').value=p.shelfLife||'';
+  calculateExpiry();
+}
+function addNewProduct(){
+  const raw=prompt('Enter product name:'); if(!raw)return;
+  const name=raw.trim(); if(!name)return;
+  const existing=products.find(p=>p.name.toLowerCase()===name.toLowerCase());
+  if(existing){renderProductOptions();document.getElementById('material').value=existing.name;productSelected();return;}
+  const rawUnit=prompt('Unit: Bags, Bottle, Bucket, Can, Other, Piece, Set, Sq.M.','Other')||'Other';
+  const allowed=['Bags','Bottle','Bucket','Can','Other','Piece','Set','Sq.M.'];
+  const unit=allowed.find(x=>x.toLowerCase()===rawUnit.trim().toLowerCase())||'Other';
+  const shelfLife=Number(prompt('Shelf life in months:','12'));
+  if(!Number.isInteger(shelfLife)||shelfLife<=0){alert('Please enter a valid whole-number shelf life.');return;}
+  products.push({name,unit,shelfLife});
+  products.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
+  localStorage.setItem(PKEY,JSON.stringify(products));
+  renderProductOptions();document.getElementById('material').value=name;productSelected();renderProductMaster();
+}
+function renderProductMaster(){
+  const el=document.getElementById('productList'); if(!el)return;
+  if(!products.length){el.innerHTML='<div class="empty">No products added yet.</div>';return;}
+  el.innerHTML=products.map((p,i)=>`<div class="batch"><div class="batch-top"><div><div class="material">${esc(p.name)}</div><div class="batch-meta">Unit: ${esc(p.unit)} • Shelf life: ${num(p.shelfLife)} months</div></div><button class="danger" onclick="deleteProduct(${i})">🗑️</button></div></div>`).join('');
+}
+function deleteProduct(i){
+  const p=products[i];if(!p)return;
+  if(stock.some(x=>String(x.material).toLowerCase()===p.name.toLowerCase()))return alert('This product has stock records. Delete those stock entries first.');
+  if(!confirm('Delete product "'+p.name+'"?'))return;
+  products.splice(i,1);localStorage.setItem(PKEY,JSON.stringify(products));renderProductOptions();renderProductMaster();
+}
 function addPurchase(){
   const material=document.getElementById('material').value.trim();
   const mfg=document.getElementById('mfg').value;
@@ -331,6 +390,10 @@ function addPurchase(){
   const note=document.getElementById('note').value.trim();
   if(!material||!/^\d{2}\/\d{2}$/.test(mfg)||!Number.isInteger(shelfLife)||shelfLife<=0||!expiry||!Number.isFinite(qty)||qty<=0)
     return alert('Please enter material, MFG in MM/YY format, shelf life in whole months, and a valid quantity.');
+  if(!products.some(p=>p.name.toLowerCase()===material.toLowerCase())){
+    products.push({name:material,unit,shelfLife});
+    products.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
+  }
   let x=stock.find(a=>a.material.toLowerCase()===material.toLowerCase() && a.mfg===mfg && a.shelfLife===shelfLife && a.expiry===expiry);
   if(x){x.qty+=qty}
   else{x={id:uid(),material,mfg,shelfLife,expiry,qty,unit};stock.push(x)}
@@ -428,29 +491,10 @@ function formatDate(d){
 }
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 render();
+renderProductOptions();
+renderProductMaster();
 updateBackupStatus();
 loadDriveBackupSettings();
-
-let deferredInstallPrompt=null;
-if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
-}
-window.addEventListener('beforeinstallprompt',e=>{
-  e.preventDefault();
-  deferredInstallPrompt=e;
-  const b=document.getElementById('installAppBtn');
-  if(b)b.classList.add('show');
-});
-document.getElementById('installAppBtn')?.addEventListener('click',async()=>{
-  if(!deferredInstallPrompt)return;
-  deferredInstallPrompt.prompt();
-  await deferredInstallPrompt.userChoice;
-  deferredInstallPrompt=null;
-  document.getElementById('installAppBtn')?.classList.remove('show');
-});
-window.addEventListener('appinstalled',()=>{
-  document.getElementById('installAppBtn')?.classList.remove('show');
-});
 </script>
 </body>
 </html>

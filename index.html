@@ -95,7 +95,12 @@
     .actions button{font-size:12px}
   }
 
-</style>
+.install-app-btn{display:none;background:#17324d;color:#fff;width:100%;margin:0 0 12px;border-radius:10px;padding:12px;font-weight:800;font-size:15px}.install-app-btn.show{display:block}</style>
+<link rel="manifest" href="./manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Aarav Stock Manager">
+<link rel="icon" href="./icon-192.png">
 </head>
 <body>
 <header>
@@ -103,7 +108,7 @@
   <small>Purchase + / Sale − • Stock maintained batch/expiry-wise</small>
 </header>
 
-<div class="wrap">
+<div class="wrap"><button id="installAppBtn" class="install-app-btn" type="button">📲 Install Aarav Stock Manager</button>
   <div class="summary">
     <div class="stat"><b id="totalItems">0</b><span>Total Units</span></div>
     <div class="stat"><b id="batchCount">0</b><span>Active Batches</span></div>
@@ -425,6 +430,27 @@ function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&l
 render();
 updateBackupStatus();
 loadDriveBackupSettings();
+
+let deferredInstallPrompt=null;
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+}
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  deferredInstallPrompt=e;
+  const b=document.getElementById('installAppBtn');
+  if(b)b.classList.add('show');
+});
+document.getElementById('installAppBtn')?.addEventListener('click',async()=>{
+  if(!deferredInstallPrompt)return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt=null;
+  document.getElementById('installAppBtn')?.classList.remove('show');
+});
+window.addEventListener('appinstalled',()=>{
+  document.getElementById('installAppBtn')?.classList.remove('show');
+});
 </script>
 </body>
 </html>

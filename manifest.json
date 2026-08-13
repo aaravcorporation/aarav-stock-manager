@@ -1,8 +1,13 @@
 {
-  "name":"Aarav Stock Manager","short_name":"Aarav Stock",
+  "name":"Aarav Stock Manager",
+  "short_name":"Aarav Stock",
   "description":"Expiry-wise material stock manager for Aarav Corporation",
-  "start_url":"./","scope":"./","display":"standalone","orientation":"portrait",
-  "background_color":"#f4f6f8","theme_color":"#17324d",
+  "start_url":"./",
+  "scope":"./",
+  "display":"standalone",
+  "orientation":"portrait",
+  "background_color":"#f4f6f8",
+  "theme_color":"#17324d",
   "icons":[
     {"src":"./icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
     {"src":"./icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}

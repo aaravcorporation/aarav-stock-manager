@@ -349,13 +349,21 @@ function changeQty(id,delta){
 }
 function sellBatch(id){
   const x=stock.find(a=>a.id===id); if(!x)return;
-  const amount=prompt(`Sale quantity for ${x.material} (available: ${num(x.qty)} ${x.unit||''})`,'1');
-  if(amount===null)return;
-  const n=Number(amount);
-  if(!Number.isFinite(n)||n<=0)return alert('Enter a valid quantity.');
-  if(n>x.qty)return alert('Sale quantity cannot exceed available stock.');
-  x.qty-=n;
-  history.unshift({date:new Date().toISOString(),type:'SALE',material:x.material,batch:x.batch,expiry:x.expiry,qty:n,unit:x.unit});
+  const qty=Number(prompt(`Enter sale / reduction quantity (max ${num(x.qty)}):`,'1'));
+  if(!Number.isFinite(qty)||qty<=0)return;
+  if(qty>Number(x.qty||0))return alert('Quantity cannot exceed current stock.');
+  const note=prompt('Sale Reference / Note (optional):','')||'';
+  x.qty=Number(x.qty||0)-qty;
+  history.unshift({
+    date:new Date().toISOString(),
+    type:'SALE',
+    material:x.material,
+    mfg:x.mfg,
+    expiry:x.expiry,
+    qty,
+    unit:x.unit||'',
+    note:note.trim()
+  });
   save();render();
 }
 function openAddStock(id){
@@ -367,6 +375,7 @@ function openAddStock(id){
   document.getElementById('adjustMfg').value=x.mfg||'';
   document.getElementById('adjustQty').value='1';
   document.getElementById('adjustReason').value='Replacement / Return';
+  document.getElementById('adjustNote').value='';
   modal.style.display='flex';
 }
 function closeAddStock(){
@@ -380,6 +389,7 @@ function addReplacementStock(){
   const mfg=document.getElementById('adjustMfg').value.trim();
   const qty=Number(document.getElementById('adjustQty').value);
   const reason=document.getElementById('adjustReason').value.trim()||'Stock adjustment';
+  const note=document.getElementById('adjustNote').value.trim();
 
   if(!/^\d{2}\/\d{2}$/.test(mfg))return alert('Enter Mfg. in MM/YY format.');
   const [mm]=mfg.split('/').map(Number);
@@ -424,7 +434,8 @@ function addReplacementStock(){
     expiry,
     qty,
     unit,
-    reason
+    reason,
+    note
   });
 
   save();
@@ -741,6 +752,8 @@ loadDriveBackupSettings();
       <option>Stock Adjustment</option>
       <option>Other</option>
     </select>
+    <label style="display:block;margin-top:12px">Reference / Note <span style="font-weight:400;color:#6b7280">(optional)</span></label>
+    <input id="adjustNote" placeholder="e.g. supplier replacement against invoice">
     <input type="hidden" id="adjustStockId">
     <div style="display:flex;gap:10px;margin-top:18px">
       <button type="button" class="secondary" style="flex:1" onclick="closeAddStock()">Cancel</button>

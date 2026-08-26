@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#17324d">
 <title>Expiry-wise Stock Manager</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <style>
   :root{--navy:#17324d;--blue:#2563eb;--green:#15803d;--red:#dc2626;--amber:#b45309;--bg:#f4f6f8;--card:#fff;--text:#17202a;--muted:#6b7280;--border:#dfe4ea}
   *{box-sizing:border-box}
@@ -930,6 +932,12 @@ renderProductMaster();
 updateBackupStatus();
 initCloudSync();
 showTab(localStorage.getItem('aarav_current_tab') || 'stock');
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .catch(err => console.error('Service worker registration failed:', err));
+  });
+}
 </script>
 
 

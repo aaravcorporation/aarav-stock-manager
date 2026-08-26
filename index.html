@@ -804,16 +804,54 @@ async function backupToDrive(manual){
   }
 }
 
-async function fetchCloudData(){
-  const cfg=await readDriveSettingsPersistently();
-  if(!cfg.url)return null;
-  const sep=cfg.url.includes('?')?'&':'?';
-  const url=cfg.url+sep+'token='+encodeURIComponent(cfg.token||'')+'&t='+Date.now();
-  const r=await fetch(url,{cache:'no-store'});
-  if(!r.ok)throw new Error('Cloud request failed');
-  const d=await r.json();
-  if(!d||d.ok===false)throw new Error(d?.error||'Cloud sync failed');
-  return d.data||null;
+function fetchCloudData(){
+  return new Promise(async (resolve,reject)=>{
+    const cfg=await readDriveSettingsPersistently();
+    if(!cfg.url){ resolve(null); return; }
+
+    const callback='__aaravCloudSync_'+Date.now()+'_'+Math.floor(Math.random()*100000);
+    const sep=cfg.url.includes('?')?'&':'?';
+    const url=cfg.url+sep+
+      'token='+encodeURIComponent(cfg.token||'')+
+      '&callback='+encodeURIComponent(callback)+
+      '&t='+Date.now();
+
+    const script=document.createElement('script');
+    let finished=false;
+    const cleanup=()=>{
+      if(script.parentNode)script.parentNode.removeChild(script);
+      try{delete window[callback];}catch(e){window[callback]=undefined;}
+    };
+    const timer=setTimeout(()=>{
+      if(finished)return;
+      finished=true;
+      cleanup();
+      reject(new Error('Cloud request timed out'));
+    },15000);
+
+    window[callback]=(d)=>{
+      if(finished)return;
+      finished=true;
+      clearTimeout(timer);
+      cleanup();
+      if(!d||d.ok===false){
+        reject(new Error(d?.error||'Cloud sync failed'));
+      }else{
+        resolve(d.data||null);
+      }
+    };
+
+    script.onerror=()=>{
+      if(finished)return;
+      finished=true;
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error('Cloud request failed'));
+    };
+    script.src=url;
+    script.async=true;
+    document.head.appendChild(script);
+  });
 }
 
 async function syncNow(manual=true){

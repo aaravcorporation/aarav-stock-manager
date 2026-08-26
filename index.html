@@ -890,7 +890,7 @@ async function syncNow(manual=true){
     window.cloudSyncReady=true;
   }catch(e){
     window.cloudSyncReady=true;
-    if(el&&manual)el.textContent='⚠️ Sync failed. Your local data was not changed.';
+    if(el&&manual)el.textContent='⚠️ Sync failed: '+(e?.message||String(e));
   }
 }
 

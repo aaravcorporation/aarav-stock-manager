@@ -185,6 +185,7 @@
             <option value="Bucket">Bucket</option>
             <option value="Can">Can</option>
             <option value="Other">Other</option>
+            <option value="Pack">Pack</option>
             <option value="Piece">Piece</option>
             <option value="Set">Set</option>
             <option value="Sq.M.">Sq.M.</option>
@@ -226,6 +227,7 @@
         <input id="driveBackupToken" type="password" placeholder="Optional backup key">
         <button class="primary" onclick="saveDriveBackupSettings()">Save Google Drive Settings</button><button class="secondary" style="width:100%;margin-top:8px" onclick="loadDriveBackupSettings()">↻ Reload Saved Settings</button>
         <button class="secondary" style="width:100%;margin-top:7px" onclick="backupToDrive(true)">☁️ Backup to Google Drive Now</button>
+        <button class="secondary" style="width:100%;margin-top:7px" onclick="syncNow(true)">🔄 Sync Now</button>
         <div id="driveStatus" class="backup-status"></div>
         <div class="notice">After setup, stock changes can automatically update one backup file in your Google Drive. Google authorization is handled by the Apps Script you deploy.</div>
       </div>
@@ -250,19 +252,24 @@ function normalizeProducts(){
 normalizeProducts();
 
 function save(){
+  const modifiedAt=new Date().toISOString();
   localStorage.setItem(KEY,JSON.stringify(stock));
   localStorage.setItem(HKEY,JSON.stringify(history));
   localStorage.setItem(PKEY,JSON.stringify(products));
-  localStorage.setItem('expiry_stock_last_backup', new Date().toISOString());
+  localStorage.setItem('expiry_stock_last_backup', modifiedAt);
+  localStorage.setItem('expiry_stock_modified_at', modifiedAt);
   localStorage.setItem('expiry_stock_auto_backup', JSON.stringify({
     version:1,
-    exportedAt:new Date().toISOString(),
+    exportedAt:modifiedAt,
+    modifiedAt,
     stock:stock,
-    history:history
+    history:history,
+    products:products
   }));
   updateBackupStatus();
-  backupToDrive(false);
+  if(window.cloudSyncReady) backupToDrive(false);
 }
+
 function today(){return new Date().toISOString().slice(0,10)}
 function expiryDate(d){
   if(/^\d{2}\/\d{2}$/.test(d)){
@@ -356,6 +363,7 @@ function sellBatch(id){
   const note=prompt('Sale Reference / Note (optional):','')||'';
   x.qty=Number(x.qty||0)-qty;
   history.unshift({
+    txnId:makeTxnId(),
     date:new Date().toISOString(),
     type:'SALE',
     material:x.material,
@@ -497,7 +505,7 @@ function saveNewProduct(){
     return alert('This product already exists in Product Master.');
   products.push({name,unit,shelfLife});
   products.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
-  localStorage.setItem(PKEY,JSON.stringify(products));
+  save();
   renderProductOptions();
   renderProductMaster();
   document.getElementById('newProductName').value='';
@@ -555,9 +563,9 @@ function editProduct(i){
   const clean=name.trim();
   if(!clean)return alert('Product name cannot be blank.');
 
-  const unit=prompt('Unit (Bags, Bottle, Bucket, Can, Other, Piece, Set, Sq.M.):',p.unit);
+  const unit=prompt('Unit (Bags, Bottle, Bucket, Can, Other, Pack, Piece, Set, Sq.M.):',p.unit);
   if(unit===null)return;
-  const allowed=['Bags','Bottle','Bucket','Can','Other','Piece','Set','Sq.M.'];
+  const allowed=['Bags','Bottle','Bucket','Can','Other','Pack','Piece','Set','Sq.M.'];
   const chosen=allowed.find(x=>x.toLowerCase()===unit.trim().toLowerCase())||'Other';
 
   const shelf=prompt('Shelf life in months:',String(p.shelfLife));
@@ -779,28 +787,93 @@ async function backupToDrive(manual){
   if(!cfg.url){
     const el=document.getElementById('driveStatus');
     if(el)el.textContent='Google Drive settings not configured.';
-    return;
+    return false;
   }
-  const payload={token:cfg.token||'',data:{version:1,exportedAt:new Date().toISOString(),stock:stock,history:history}};
+  const modifiedAt=localStorage.getItem('expiry_stock_modified_at')||new Date().toISOString();
+  const payload={token:cfg.token||'',data:{version:2,exportedAt:new Date().toISOString(),modifiedAt,stock:stock,history:history,products:products}};
   try{
     await fetch(cfg.url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
     localStorage.setItem('drive_backup_last',new Date().toISOString());
     const el=document.getElementById('driveStatus');
     if(el)el.textContent='✓ Backup sent to Google Drive: '+new Date().toLocaleString('en-IN');
+    return true;
   }catch(e){
     const el=document.getElementById('driveStatus');
     if(el&&manual)el.textContent='⚠️ Could not send backup. Check the Web App URL.';
+    return false;
   }
 }
+
+async function fetchCloudData(){
+  const cfg=await readDriveSettingsPersistently();
+  if(!cfg.url)return null;
+  const sep=cfg.url.includes('?')?'&':'?';
+  const url=cfg.url+sep+'token='+encodeURIComponent(cfg.token||'')+'&t='+Date.now();
+  const r=await fetch(url,{cache:'no-store'});
+  if(!r.ok)throw new Error('Cloud request failed');
+  const d=await r.json();
+  if(!d||d.ok===false)throw new Error(d?.error||'Cloud sync failed');
+  return d.data||null;
+}
+
+async function syncNow(manual=true){
+  const el=document.getElementById('driveStatus');
+  try{
+    const remote=await fetchCloudData();
+    if(!remote){
+      if(el)el.textContent='☁️ No cloud backup found yet.';
+      window.cloudSyncReady=true;
+      return;
+    }
+    const localModified=localStorage.getItem('expiry_stock_modified_at')||'';
+    const remoteModified=remote.modifiedAt||remote.exportedAt||'';
+    if(remoteModified && (!localModified || new Date(remoteModified)>new Date(localModified))){
+      stock=Array.isArray(remote.stock)?remote.stock:[];
+      history=Array.isArray(remote.history)?remote.history:[];
+      products=Array.isArray(remote.products)?remote.products:[];
+      normalizeProducts();
+      localStorage.setItem(KEY,JSON.stringify(stock));
+      localStorage.setItem(HKEY,JSON.stringify(history));
+      localStorage.setItem(PKEY,JSON.stringify(products));
+      localStorage.setItem('expiry_stock_modified_at',remoteModified);
+      localStorage.setItem('expiry_stock_last_backup',remoteModified);
+      renderProductOptions();
+      renderProductMaster();
+      render();
+      if(el)el.textContent='✓ Synced latest data from Google Drive: '+new Date(remoteModified).toLocaleString('en-IN');
+    }else if(localModified && remoteModified && new Date(localModified)>new Date(remoteModified)){
+      await backupToDrive(false);
+      if(el)el.textContent='✓ Local changes were newer and uploaded to Google Drive.';
+    }else{
+      if(el)el.textContent='✓ Already up to date.';
+    }
+    window.cloudSyncReady=true;
+  }catch(e){
+    window.cloudSyncReady=true;
+    if(el&&manual)el.textContent='⚠️ Sync failed. Your local data was not changed.';
+  }
+}
+
+async function initCloudSync(){
+  window.cloudSyncReady=false;
+  await loadDriveBackupSettings();
+  const cfg=await readDriveSettingsPersistently();
+  if(cfg.url){
+    await syncNow(false);
+  }else{
+    window.cloudSyncReady=true;
+  }
+}
+
 function exportData(){
-  const data={version:1,exportedAt:new Date().toISOString(),stock,history};
+  const data={version:2,exportedAt:new Date().toISOString(),modifiedAt:localStorage.getItem('expiry_stock_modified_at')||new Date().toISOString(),stock,history,products};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='expiry-stock-backup.json';a.click();URL.revokeObjectURL(a.href);
 }
 function importData(e){
   const file=e.target.files[0];if(!file)return;
   const r=new FileReader();
-  r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.stock)||!Array.isArray(d.history))throw 0;stock=d.stock;history=d.history;save();render();alert('Backup imported successfully.')}catch{alert('Invalid backup file.')}};r.readAsText(file);
+  r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.stock)||!Array.isArray(d.history))throw 0;stock=d.stock;history=d.history;products=Array.isArray(d.products)?d.products:products;normalizeProducts();localStorage.setItem('expiry_stock_modified_at',d.modifiedAt||new Date().toISOString());save();renderProductOptions();renderProductMaster();render();alert('Backup imported successfully.')}catch{alert('Invalid backup file.')}};r.readAsText(file);
 }
 function clearAll(){
   if(confirm('Delete ALL stock and transaction history? This cannot be undone unless you have a backup.')){stock=[];history=[];save();render();}
@@ -817,7 +890,7 @@ render();
 renderProductOptions();
 renderProductMaster();
 updateBackupStatus();
-loadDriveBackupSettings();
+initCloudSync();
 showTab(localStorage.getItem('aarav_current_tab') || 'stock');
 </script>
 

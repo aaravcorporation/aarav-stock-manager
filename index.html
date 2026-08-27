@@ -805,38 +805,88 @@ async function backupToDrive(manual){
     return false;
   }
 }
-async function fetchCloudData(){
-  const cfg = await readDriveSettingsPersistently();
+function fetchCloudData(){
+  return new Promise(async (resolve,reject)=>{
+    try{
+      const cfg=await readDriveSettingsPersistently();
 
-  if(!cfg.url){
-    return null;
-  }
+      if(!cfg.url){
+        resolve(null);
+        return;
+      }
 
-  const sep = cfg.url.includes('?') ? '&' : '?';
+      const callback='__aaravCloudSync_'+
+        Date.now()+'_'+
+        Math.floor(Math.random()*100000);
 
-  const url = cfg.url + sep +
-    'token=' + encodeURIComponent(cfg.token || '') +
-    '&t=' + Date.now();
+      const sep=cfg.url.includes('?')?'&':'?';
 
-  const response = await fetch(url, {
-    method: 'GET',
-    redirect: 'follow',
-    cache: 'no-store'
+      const url=cfg.url+sep+
+        'token='+encodeURIComponent(cfg.token||'')+
+        '&callback='+encodeURIComponent(callback)+
+        '&t='+Date.now();
+
+      const script=document.createElement('script');
+
+      let finished=false;
+
+      const cleanup=()=>{
+        if(script.parentNode){
+          script.parentNode.removeChild(script);
+        }
+
+        try{
+          delete window[callback];
+        }catch(e){
+          window[callback]=undefined;
+        }
+      };
+
+      const timer=setTimeout(()=>{
+        if(finished)return;
+
+        finished=true;
+        cleanup();
+
+        reject(new Error('Cloud request timed out'));
+      },15000);
+
+      window[callback]=(data)=>{
+        if(finished)return;
+
+        finished=true;
+        clearTimeout(timer);
+        cleanup();
+
+        if(!data || data.ok===false){
+          reject(new Error(data?.error||'Cloud sync failed'));
+          return;
+        }
+
+        resolve(data.data||null);
+      };
+
+      script.onerror=()=>{
+        if(finished)return;
+
+        finished=true;
+        clearTimeout(timer);
+        cleanup();
+
+        reject(new Error('Cloud request failed'));
+      };
+
+      script.src=url;
+      script.async=true;
+
+      document.head.appendChild(script);
+
+    }catch(e){
+      reject(e);
+    }
   });
-
-  if(!response.ok){
-    throw new Error('Cloud request failed: HTTP ' + response.status);
-  }
-
-  const data = await response.json();
-
-  if(!data || data.ok === false){
-    throw new Error(data?.error || 'Cloud sync failed');
-  }
-
-  return data.data || null;
 }
-async function syncNow(manual=true){
+  async function syncNow(manual=true){
   const el=document.getElementById('driveStatus');
 
   try{

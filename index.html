@@ -848,7 +848,7 @@ function fetchCloudData(){
         finished=true;
         cleanup();
 
-        reject(new Error('Cloud request timed out'));
+        reject(new Error('Cloud request failed. URL: '+url));
       },15000);
 
       window[callback]=(data)=>{

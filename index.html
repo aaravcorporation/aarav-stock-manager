@@ -838,43 +838,97 @@ async function fetchCloudData(){
 }
 async function syncNow(manual=true){
   const el=document.getElementById('driveStatus');
+
   try{
     const remote=await fetchCloudData();
+
     if(!remote){
       if(el)el.textContent='☁️ No cloud backup found yet.';
       window.cloudSyncReady=true;
       return;
     }
+
     const localModified=localStorage.getItem('expiry_stock_modified_at')||'';
     const remoteModified=remote.modifiedAt||remote.exportedAt||'';
-    if(remoteModified && (!localModified || new Date(remoteModified)>new Date(localModified))){
+
+    const localStockCount=Array.isArray(stock)
+      ? stock.reduce((sum,x)=>sum+Number(x.qty||0),0)
+      : 0;
+
+    const remoteStockCount=Array.isArray(remote.stock)
+      ? remote.stock.reduce((sum,x)=>sum+Number(x.qty||0),0)
+      : 0;
+
+    /*
+      If this device has no stock but the cloud backup has stock,
+      always restore the cloud data.
+
+      This prevents an empty/new device from incorrectly saying
+      "Already up to date" just because its timestamp is newer.
+    */
+    const shouldRestoreEmptyLocal =
+      localStockCount===0 && remoteStockCount>0;
+
+    const remoteIsNewer =
+      remoteModified &&
+      (!localModified || new Date(remoteModified)>new Date(localModified));
+
+    if(shouldRestoreEmptyLocal || remoteIsNewer){
+
       stock=Array.isArray(remote.stock)?remote.stock:[];
       history=Array.isArray(remote.history)?remote.history:[];
       products=Array.isArray(remote.products)?remote.products:[];
+
       normalizeProducts();
+
       localStorage.setItem(KEY,JSON.stringify(stock));
       localStorage.setItem(HKEY,JSON.stringify(history));
       localStorage.setItem(PKEY,JSON.stringify(products));
-      localStorage.setItem('expiry_stock_modified_at',remoteModified);
-      localStorage.setItem('expiry_stock_last_backup',remoteModified);
+
+      if(remoteModified){
+        localStorage.setItem('expiry_stock_modified_at',remoteModified);
+        localStorage.setItem('expiry_stock_last_backup',remoteModified);
+      }
+
       renderProductOptions();
       renderProductMaster();
       render();
-      if(el)el.textContent='✓ Synced latest data from Google Drive: '+new Date(remoteModified).toLocaleString('en-IN');
-    }else if(localModified && remoteModified && new Date(localModified)>new Date(remoteModified)){
+
+      if(el){
+        el.textContent='✓ Synced latest data from Google Drive: '+
+          (remoteModified
+            ? new Date(remoteModified).toLocaleString('en-IN')
+            : new Date().toLocaleString('en-IN'));
+      }
+
+    }else if(
+      localModified &&
+      remoteModified &&
+      new Date(localModified)>new Date(remoteModified)
+    ){
+
       await backupToDrive(false);
+
       if(el)el.textContent='✓ Local changes were newer and uploaded to Google Drive.';
+
     }else{
+
       if(el)el.textContent='✓ Already up to date.';
+
     }
+
     window.cloudSyncReady=true;
+
   }catch(e){
+
     window.cloudSyncReady=true;
-    if(el&&manual)el.textContent='⚠️ Sync failed: '+(e?.message||String(e));
+
+    if(el&&manual){
+      el.textContent='⚠️ Sync failed: '+(e?.message||String(e));
+    }
   }
 }
-
-async function initCloudSync(){
+  async function initCloudSync(){
   window.cloudSyncReady=false;
   await loadDriveBackupSettings();
   const cfg=await readDriveSettingsPersistently();

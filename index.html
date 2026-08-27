@@ -808,51 +808,67 @@ async function backupToDrive(manual){
 
 function fetchCloudData(){
   return new Promise(async (resolve,reject)=>{
-    const cfg=await readDriveSettingsPersistently();
-    if(!cfg.url){ resolve(null); return; }
-
-    const callback='__aaravCloudSync_'+Date.now()+'_'+Math.floor(Math.random()*100000);
-    const sep=cfg.url.includes('?')?'&':'?';
-    const url=cfg.url+sep+
-      'token='+encodeURIComponent(cfg.token||'')+
-      '&callback='+encodeURIComponent(callback)+
-      '&t='+Date.now();
-
-    const script=document.createElement('script');
-    let finished=false;
-    const cleanup=()=>{
-      if(script.parentNode)script.parentNode.removeChild(script);
-      try{delete window[callback];}catch(e){window[callback]=undefined;}
-    };
-    const timer=setTimeout(()=>{
-      if(finished)return;
-      finished=true;
-      cleanup();
-      reject(new Error('Cloud request timed out'));
-    },15000);
-
-    window[callback]=(d)=>{
-      if(finished)return;
-      finished=true;
-      clearTimeout(timer);
-      cleanup();
-      if(!d||d.ok===false){
-        reject(new Error(d?.error||'Cloud sync failed'));
-      }else{
-        resolve(d.data||null);
+    try{
+      const cfg=await readDriveSettingsPersistently();
+      if(!cfg.url){
+        resolve(null);
+        return;
       }
-    };
 
-    script.onerror=()=>{
-      if(finished)return;
-      finished=true;
-      clearTimeout(timer);
-      cleanup();
-      reject(new Error('Cloud request failed'));
-    };
-    script.src=url;
-    script.async=true;
-    document.head.appendChild(script);
+      const callback='__aaravCloudSync_'+Date.now()+'_'+Math.floor(Math.random()*100000);
+      const sep=cfg.url.includes('?')?'&':'?';
+
+      const url=cfg.url+sep+
+        'token='+encodeURIComponent(cfg.token||'')+
+        '&callback='+encodeURIComponent(callback)+
+        '&t='+Date.now();
+
+      const script=document.createElement('script');
+      let finished=false;
+
+      const cleanup=()=>{
+        clearTimeout(timer);
+        if(script.parentNode)script.parentNode.removeChild(script);
+        try{
+          delete window[callback];
+        }catch(e){
+          window[callback]=undefined;
+        }
+      };
+
+      const timer=setTimeout(()=>{
+        if(finished)return;
+        finished=true;
+        cleanup();
+        reject(new Error('Cloud request timed out'));
+      },30000);
+
+      window[callback]=(d)=>{
+        if(finished)return;
+        finished=true;
+        cleanup();
+
+        if(!d || d.ok===false){
+          reject(new Error(d?.error||'Cloud sync failed'));
+        }else{
+          resolve(d.data||null);
+        }
+      };
+
+      script.onerror=()=>{
+        if(finished)return;
+        finished=true;
+        cleanup();
+        reject(new Error('Cloud request failed'));
+      };
+
+      script.src=url;
+      script.async=true;
+      document.head.appendChild(script);
+
+    }catch(e){
+      reject(e);
+    }
   });
 }
 
